@@ -8,8 +8,8 @@
 // The input image is encoded as unsigned chars [0, 255]
 // Each pixel is 3 consecutive chars for the 3 channels (RGB)
 __global__
-void colortoGrayscaleConvertion(UnifiedPtr<unsigned char> Pout,
-                                UnifiedPtr<unsigned char> Pin, int width, int height) {
+void colortoGrayscaleConvertion(unsigned char* Pout,
+                                unsigned char* Pin, int width, int height) {
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -64,7 +64,7 @@ int main() {
                   (height + blockSize.y - 1) / blockSize.y);
 
     // Launch the kernel
-    colortoGrayscaleConvertion<<<gridSize, blockSize>>>(output, input, width, height);
+    colortoGrayscaleConvertion<<<gridSize, blockSize>>>(output.get(), input.get(), width, height);
     cudaDeviceSynchronize();
     checkCudaError(cudaGetLastError(), "Kernel launch failed");
 

@@ -35,6 +35,11 @@ add_executable(
 add_executable(
         query
         4_8_query.cu
-        random.hpp
+        utils.hpp
+)
+
+add_executable(
+        tiled_gemm
+        5_4_tiled_matrix_multiplication_kernel.cu
         utils.hpp
 )

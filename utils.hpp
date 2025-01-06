@@ -4,141 +4,175 @@
 #include <cuda_runtime.h>
 #include <cuda.h>
 #include <cassert>
+#include <atomic>
 
 __device__ int _ceil(int x, int y) {
     return (x + y - 1) / y;
 }
 
+template <typename  T>
+struct ControlBlock {
+    T* ptr;
+    bool isCuda;
+    size_t size;
+    std::atomic<int> ref_count;
+
+    ControlBlock(T *p, bool cuda, size_t s)
+        : ptr(p), isCuda(cuda), size(s), ref_count(1) {}
+};
+
+
 // Custom template pointer class
 template <typename T>
 class UnifiedPtr {
 private:
-    T* ptr;       // Internal raw pointer
-    bool isCuda;  // Indicates whether CUDA memory is being used
-    size_t _size;  // Number of elements
+    ControlBlock<T> *control;
+
+    void release() {
+        if (--control->ref_count == 0) {
+            if (control->isCuda) {
+                cudaFree(control->ptr);
+            } else {
+                delete[] control->ptr;
+            }
+            delete control;
+        }
+        control = nullptr;
+    }
 
 public:
 
     // Constructor: Initializes memory based on whether CUDA memory is being used
     __host__
-    UnifiedPtr(size_t _size, bool useCuda = false) : ptr(nullptr), isCuda(useCuda), _size(_size) {
-        if (isCuda) {
-            cudaError_t err = cudaMallocManaged(&ptr, _size * sizeof(T));
+    UnifiedPtr(size_t _size, bool useCuda = false) : control(nullptr) {
+        T* p = nullptr;
+        if (useCuda) {
+            cudaError_t err = cudaMallocManaged(&p, _size * sizeof(T));
             if (err != cudaSuccess) {
                 throw std::runtime_error("cudaMallocManaged failed: " + std::string(cudaGetErrorString(err)));
             }
         } else {
-            ptr = new T[_size];
+            p = new T[_size];
         }
+        control = new ControlBlock<T>(p, useCuda, _size);
     }
 
     // Constructor: Initializes memory based on whether CUDA memory is being used
     __host__
-    UnifiedPtr(size_t _size, T val, bool useCuda = false) : ptr(nullptr), isCuda(useCuda), _size(_size) {
-        if (isCuda) {
-            cudaError_t err = cudaMallocManaged(&ptr, _size * sizeof(T));
+    UnifiedPtr(size_t _size, T val, bool useCuda = false) : control(nullptr) {
+        T* p = nullptr;
+        if (useCuda) {
+            cudaError_t err = cudaMallocManaged(&p, _size * sizeof(T));
             if (err != cudaSuccess) {
                 throw std::runtime_error("cudaMallocManaged failed: " + std::string(cudaGetErrorString(err)));
             }
         } else {
-            ptr = new T[_size];
+            p = new T[_size];
         }
-        for (size_t i = 0; i < _size; i++) {
-            ptr[i] = val;
+        // 初始化数据
+        for (size_t i = 0; i < _size; ++i) {
+            p[i] = val;
         }
+        control = new ControlBlock<T>(p, useCuda, _size);
     }
 
     // Constructor using an initializer_list
     __host__
-    UnifiedPtr(std::initializer_list<T> initList, bool useCuda = false) : ptr(nullptr), isCuda(useCuda), _size(initList.size()) {
-        if (isCuda) {
-            cudaError_t err = cudaMallocManaged(&ptr, _size * sizeof(T));
+    UnifiedPtr(std::initializer_list<T> initList, bool useCuda = false) : control(nullptr){
+        T* p = nullptr;
+        if (useCuda) {
+            cudaError_t err = cudaMallocManaged(&p, initList.size() * sizeof(T));
             if (err != cudaSuccess) {
                 throw std::runtime_error("cudaMallocManaged failed: " + std::string(cudaGetErrorString(err)));
             }
         } else {
-            ptr = new T[_size];
+            p = new T[initList.size()];
         }
-        // Initialize data (copy values from initializer_list to allocated memory)
+        // 复制数据
         size_t i = 0;
         for (const auto& value : initList) {
-            ptr[i++] = value;
+            p[i++] = value;
+        }
+        control = new ControlBlock<T>(p, useCuda, initList.size());
+    }
+
+    UnifiedPtr(const UnifiedPtr& other) : control(other.control) {
+        if (control) {
+            ++control->ref_count;
         }
     }
 
-    // Destructor: Releases resources
-    __host__
-    ~UnifiedPtr() {
-//        printf("call destructor at: %p\n", ptr);
-        if (isCuda) {
-            if (!ptr) cudaFree(ptr);
-            ptr = nullptr;
-        } else {
-            if (!ptr) delete[] ptr;
-            ptr = nullptr;
+    UnifiedPtr& operator=(const UnifiedPtr& other) {
+        if (this != &other) {
+            // 释放当前资源
+            release();
+            // 复制新的控制块
+            control = other.control;
+            if (control) {
+                ++control->ref_count;
+            }
         }
+        return *this;
+    }
+
+    UnifiedPtr(UnifiedPtr&& other) noexcept : control(other.control) {
+        other.control = nullptr;
+    }
+
+    UnifiedPtr& operator=(UnifiedPtr&& other) noexcept {
+        if (this != &other) {
+            // 释放当前资源
+            release();
+            // 转移控制块指针
+            control = other.control;
+            other.control = nullptr;
+        }
+        return *this;
+    }
+
+
+    // Destructor: Releases resources
+    ~UnifiedPtr() {
+        release();
     }
 
     // Overloaded * operator to support access like a raw pointer
     __host__ __device__
     T& operator*() const {
-        return *ptr;
+        return *(control->ptr);
     }
 
     // Overloaded -> operator to support access like a raw pointer
     __host__ __device__
     T* operator->() const {
-        return ptr;
+        return control->ptr;
     }
 
     // Overloaded [] operator to support index-based access
     __host__ __device__
     T& operator[](size_t index) const {
-//        if (index >= _size) {
-//            throw std::out_of_range("Index out of range");
-//        }
-        assert(index < _size && "Index out of range");
-        return ptr[index];
+        assert(index < control->size && "Index out of range");
+        return control->ptr[index];
     }
 
     // Interface to return the internal raw pointer
     __host__ __device__
     T* get() const {
-        return ptr;
+        return control ? control->ptr : nullptr;
     }
 
     // Returns the number of elements
     __host__ __device__
     size_t size() const {
-        return _size;
+        return control ? control->size : 0;
     }
 
-    // Disable copy construction and copy assignment
-    UnifiedPtr(const UnifiedPtr&) = default;
-    UnifiedPtr& operator=(const UnifiedPtr&) = delete;
-
-    // Move constructor and move assignment
-    UnifiedPtr(UnifiedPtr&& other) noexcept : ptr(other.ptr), isCuda(other.isCuda), _size(other._size) {
-        other.ptr = nullptr;
+    int use_count() const {
+        return control ? control->ref_count.load() : 0;
     }
 
-    UnifiedPtr& operator=(UnifiedPtr&& other) noexcept {
-        if (this != &other) {
-            // Release current resources
-            if (ptr) {
-                if (isCuda) {
-                    cudaFree(ptr);
-                } else {
-                    delete[] ptr;
-                }
-            }
-            // Transfer ownership of resources
-            ptr = other.ptr;
-            isCuda = other.isCuda;
-            _size = other._size;
-            other.ptr = nullptr;
-        }
-        return *this;
+    bool unique() const {
+        return use_count() == 1;
     }
 };
 

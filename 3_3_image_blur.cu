@@ -2,6 +2,7 @@
 #include <cuda_runtime.h>
 #include <cassert>
 #include "random.hpp"
+#include "utils.hpp"
 
 __device__ int  BLUR_SIZE = 3;
 
@@ -37,28 +38,18 @@ int main() {
     const int height = 224;
     const int image_size = width * height;
 
-    unsigned char h_input[image_size];
+    UnifiedPtr<unsigned char> input(image_size, true);
     for (int i = 0; i < image_size; i++ ){
-        h_input[i] = rng.getRandomInt();
+        input[i] = rng.getRandomInt();
     }
 
-    unsigned char h_output[image_size];
-
-    unsigned char *d_input, *d_output;
-    cudaMalloc(&d_input, image_size);
-    cudaMalloc(&d_output, image_size);
-
-    cudaMemcpy(d_input, h_input, image_size, cudaMemcpyHostToDevice);
+    UnifiedPtr<unsigned char> output(image_size, true);
 
     dim3 blockSize(16, 16);
     dim3 gridSize((width + blockSize.x - 1) / blockSize.x, 
                   (height + blockSize.y - 1) / blockSize.y);
     
-    blurKernel<<<gridSize, blockSize>>> (d_output, d_input, width, height);
-    cudaMemcpy(h_output, d_output, image_size, cudaMemcpyDeviceToHost);
-
-    cudaFree(d_input);
-    cudaFree(d_output);
+    blurKernel<<<gridSize, blockSize>>> (output.get(), input.get(), width, height);
 
     return 0;
 }

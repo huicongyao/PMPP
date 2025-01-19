@@ -43,3 +43,10 @@ add_executable(
         5_4_tiled_matrix_multiplication_kernel.cu
         utils.hpp
 )
+
+
+add_executable(
+        gemm_thread_coarsening
+        6_3_matrix_multiplication_thread_coarsening.cu
+        utils.hpp
+)

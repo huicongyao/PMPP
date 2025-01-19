@@ -55,51 +55,42 @@ __global__ void tiled_matrixMulKernel(float *M, float *N, float *P, int Width) {
 int main() {
     constexpr int Width = 400;
     constexpr int Matrix_Size = Width * Width;
-//    RandomNumberGenerator &rng = RandomNumberGenerator::getInstance(0, 256);
 
-    float M_h[Matrix_Size];
-    float N_h[Matrix_Size];
-    float K_h[Matrix_Size];
-    float K_h_[Matrix_Size];
+    UnifiedPtr<float> M(Matrix_Size);
+    UnifiedPtr<float> N(Matrix_Size);
+    UnifiedPtr<float> K(Matrix_Size);
+    UnifiedPtr<float> K_(Matrix_Size);
 
     for (int i = 0; i < Matrix_Size; i++) {
-        M_h[i] = (rand() % 256) / 256.0;
-        N_h[i] = (rand() % 256) / 256.0;
+        M[i] = (rand() % 256) / 256.0f;
+        N[i] = (rand() % 256) / 256.0f;
     }
 
-    float *M_d, *N_d, *K_d, *K_d_;
-    const int size =  Matrix_Size * sizeof(float);
-    cudaMalloc(&M_d, size);
-    cudaMalloc(&N_d, size);
-    cudaMalloc(&K_d, size);
-    cudaMalloc(&K_d_, size);
-
-    cudaMemcpy(M_d, M_h, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(N_d, N_h, size, cudaMemcpyHostToDevice);
+    float *M_d = M.get();
+    float *N_d = N.get();
+    float *K_d = K.get();
+    float *K_d_ = K_.get();
 
     dim3 blockSize(16, 16);
     dim3 gridSize((Width + blockSize.x - 1) / blockSize.x,
                   (Width + blockSize.y - 1) / blockSize.y);
 
-    tiled_matrixMulKernel<<<gridSize, blockSize>>> (M_d, N_d, K_d, Width);
+    tiled_matrixMulKernel<<<gridSize, blockSize>>>(M_d, N_d, K_d, Width);
 
-    cudaMemcpy(K_h, K_d, size, cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
 
-    matrixMulKernel<<<gridSize, blockSize>>> (M_d, N_d, K_d_, Width);
-    cudaMemcpy(K_h_, K_d_, size, cudaMemcpyDeviceToHost);
+    matrixMulKernel<<<gridSize, blockSize>>>(M_d, N_d, K_d_, Width);
 
+    cudaDeviceSynchronize();
 
     float err = 0.0f;
     for (int i = 0; i < Width; i++) {
         for (int j = 0; j < Width; j++) {
-            err += abs(K_h[i * Width + j] - K_h_[i * Width + j]);
+            err += abs(K[i * Width + j] - K_[i * Width + j]);
         }
     }
-    std::cout << "Error: " << err << std::endl;
 
-    cudaFree(M_d);
-    cudaFree(N_d);
-    cudaFree(K_d);
+    std::cout << "Error: " << err << std::endl;
 
     return 0;
 }

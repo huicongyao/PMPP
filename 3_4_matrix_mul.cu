@@ -1,6 +1,8 @@
 #include <iostream>
 #include <cuda_runtime.h>
 #include <cassert>
+#include <cstdlib>
+#include "utils.hpp"
 #include "random.hpp"
 
 __global__ void MatrixMulKernel(float *M, float *N,
@@ -20,57 +22,62 @@ __global__ void MatrixMulKernel(float *M, float *N,
 int main() {
     const int Width = 2;
     const int Matrix_Size = Width * Width;
-    RandomNumberGenerator &rng = RandomNumberGenerator::getInstance(0, 9);
 
-    float M_h[Matrix_Size];
-    float N_h[Matrix_Size];
-    float K_h[Matrix_Size];
+    // 使用UnifiedPtr管理内存
+    UnifiedPtr<float> M(Matrix_Size, true);  // 使用CUDA内存
+    UnifiedPtr<float> N(Matrix_Size, true);  // 使用CUDA内存
+    UnifiedPtr<float> K(Matrix_Size, true);  // 使用CUDA内存
 
+    // 初始化矩阵M和N
     for (int i = 0; i < Matrix_Size; i++) {
-        M_h[i] = rng.getRandomInt();
-        N_h[i] = rng.getRandomInt();
+        M[i] = rand() % 10;
+        N[i] = rand() % 10;
     }
 
+    // 打印矩阵M
+    std::cout << "Matrix M:" << std::endl;
     for (int i = 0; i < Width; i++) {
         for (int j = 0; j < Width; j++) {
-            std::cout << M_h[i * Width + j] << " ";
+            std::cout << M[i * Width + j] << " ";
         }
         std::cout << std::endl;
     }
 
+    // 打印矩阵N
+    std::cout << "Matrix N:" << std::endl;
     for (int i = 0; i < Width; i++) {
         for (int j = 0; j < Width; j++) {
-            std::cout << N_h[i * Width + j] << " ";
+            std::cout << N[i * Width + j] << " ";
         }
         std::cout << std::endl;
     }
-
-    float *M_d, *N_d, *K_d;
-    const int size =  Matrix_Size * sizeof(float);
-    cudaMalloc(&M_d, size);
-    cudaMalloc(&N_d, size);
-    cudaMalloc(&K_d, size);
-
-    cudaMemcpy(M_d, M_h, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(N_d, N_h, size, cudaMemcpyHostToDevice);
 
     dim3 blockSize(16, 16);
     dim3 gridSize((Width + blockSize.x - 1) / blockSize.x,
                   (Width + blockSize.y - 1) / blockSize.y);
 
-    MatrixMulKernel<<<gridSize, blockSize>>> (M_d, N_d, K_d, Width);
+    // 调用CUDA内核函数
+    MatrixMulKernel<<<gridSize, blockSize>>>(M.get(), N.get(), K.get(), Width);
 
-    cudaMemcpy(K_h, K_d, size, cudaMemcpyDeviceToHost);
+    // 等待CUDA内核执行完成
+    cudaDeviceSynchronize();
+    // 检查CUDA内核执行是否成功
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA kernel failed: " << cudaGetErrorString(err) << std::endl;
+        return -1;
+    }
 
+    // 打印结果矩阵K
+    std::cout << "Matrix K (result):" << std::endl;
     for (int i = 0; i < Width; i++) {
         for (int j = 0; j < Width; j++) {
-            std::cout << K_h[i * Width + j] << " ";
+            std::cout << K[i * Width + j] << " ";
         }
         std::cout << std::endl;
     }
-    cudaFree(M_d);
-    cudaFree(N_d);
-    cudaFree(K_d);
+
+    // UnifiedPtr会自动释放内存，无需手动调用cudaFree
 
     return 0;
 }

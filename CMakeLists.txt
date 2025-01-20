@@ -50,3 +50,9 @@ add_executable(
         6_3_matrix_multiplication_thread_coarsening.cu
         utils.hpp
 )
+
+add_executable(
+        2d_conv_simple
+        7_1_2d_conv_simple.cu
+        utils.hpp
+)

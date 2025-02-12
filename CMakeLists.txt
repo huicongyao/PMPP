@@ -56,3 +56,15 @@ add_executable(
         7_1_2d_conv_simple.cu
         utils.hpp
 )
+
+add_executable(
+        2d_conv_cache
+        7_3_conv2d_with_const_caching.cu
+        utils.hpp
+)
+
+add_executable(
+        2d_conv_tiled
+        7_4_conv2d_tiled.cu
+        utils.hpp
+)

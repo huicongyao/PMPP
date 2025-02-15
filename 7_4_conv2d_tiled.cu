@@ -29,11 +29,9 @@ __global__ void convolution_tiled_2D_const_mem_kernel(float *N, float *P,
             float Pvalue = 0.0f;
             for (int fRow = 0; fRow < 2 * FILTER_RADIUS + 1; fRow++) {
                 for (int fCol = 0; fCol < 2 * FILTER_RADIUS + 1; fCol++) {
-                    // printf("%f %f \n", F_c[fRow * (2 * FILTER_RADIUS + 1) + fCol], N_s[tileRow + fRow][tileCol + fCol]);
                     Pvalue += F_c[fRow * (2 * FILTER_RADIUS + 1) + fCol] * N_s[tileRow + fRow][tileCol + fCol];
                 }
             }
-            // printf("%f\n", Pvalue);
             P[row * width + col] = Pvalue;
         }
     }

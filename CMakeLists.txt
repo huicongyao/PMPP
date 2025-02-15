@@ -68,3 +68,9 @@ add_executable(
         7_4_conv2d_tiled.cu
         utils.hpp
 )
+
+add_executable(
+        2d_conv_tiled_with_cache_for_halo_and_const_mem
+        7_4_conv2d_tiled.cu
+        utils.hpp
+)
